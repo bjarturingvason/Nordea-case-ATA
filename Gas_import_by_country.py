@@ -40,52 +40,68 @@ top5_latest = agg_latest[agg_latest['rank'] <= 5].sort_values(['geo', 'rank'])
 
 
 
-# Keep required columns and filter
-df = df[['geo', 'Geopolitical entity (reporting)', 'partner',
-         'Geopolitical entity (partner)', 'TIME_PERIOD', 'OBS_VALUE']]
-focus = ['DK', 'FR', 'DE', 'NO', 'ES']
-df = df[df['geo'].isin(focus) & ~df['partner'].isin(['TOTAL', 'NSP'])]
+# ---------- PARAMETERS ----------
+importers = ['DK', 'FR', 'DE', 'NO', 'ES', 'IT']  # Added Italy
+year = 2023                                     # Year to plot
+# ---------------------------------
+
+# Load dataset
+path = 'Data/estat_nrg_ti_gas_filtered_en.csv'
+df = pd.read_csv(path)
+
+# Filter relevant rows
+df = df[df['geo'].isin(importers) & ~df['partner'].isin(['TOTAL', 'NSP'])]
 df['OBS_VALUE'] = pd.to_numeric(df['OBS_VALUE'], errors='coerce')
 
-# Latest year
-year = df['TIME_PERIOD'].max()
-latest = df[df['TIME_PERIOD'] == year]
+# Select year
+df_year = df[df['TIME_PERIOD'] == year]
+if df_year.empty:
+    raise ValueError(f"No data available for year {year}.")
 
-# Top‑5 exporters per importer
-latest_ranked = (latest.groupby(['geo', 'partner'])['OBS_VALUE']
-                        .sum()
-                        .groupby(level=0, group_keys=False)
-                        .nlargest(5)
-                        .reset_index())
+# Build top-5 exporters per importer
+rows = []
+for imp in importers:
+    sub = (df_year[df_year['geo'] == imp]
+           .groupby('partner', as_index=False)['OBS_VALUE']
+           .sum()
+           .sort_values('OBS_VALUE', ascending=False)
+           .head(5))
+    sub['geo'] = imp
+    rows.append(sub)
 
-# Pivot to wide form (importer rows, exporter columns)
-pivot = (latest_ranked.pivot(index='geo', columns='partner', values='OBS_VALUE')
-                    .fillna(0))
+top5_df = pd.concat(rows, ignore_index=True)
 
-# Sort rows by importer code for consistent order
-pivot = pivot.reindex(focus)
+# Pivot for plotting
+pivot = top5_df.pivot(index='geo', columns='partner', values='OBS_VALUE').fillna(0)
+pivot = pivot.reindex(importers)
 
-# Prepare grouped horizontal bar chart
-fig, ax = plt.subplots(figsize=(10, 6))
-
-importers = pivot.index.tolist()
+# Colour map
+cmap = plt.get_cmap('tab20')
 exporters = pivot.columns.tolist()
-n_exporters = len(exporters)
-bar_height = 0.12
-y_positions = np.arange(len(importers))
+color_map = {exp: cmap(i % 20) for i, exp in enumerate(exporters)}
 
-# Offsets for grouped bars
-for i, exp in enumerate(exporters):
-    ax.barh(y_positions + (i - n_exporters/2)*bar_height + bar_height/2,
-            pivot[exp],
-            height=bar_height,
-            label=exp)
+# Plot
+fig, ax = plt.subplots(figsize=(11, 6))
+bottom = np.zeros(len(pivot))
+x = np.arange(len(pivot.index))
 
-ax.set_yticks(y_positions)
-ax.set_yticklabels(importers)
-ax.set_xlabel('Import volume (dataset units)')
-ax.set_title(f'Top 5 Gas Exporters to DK, FR, DE, NO, ES in {year} – Grouped Horizontal Bars')
-ax.legend(title='Exporter code', bbox_to_anchor=(1.05, 1), loc='upper left')
+for exp in exporters:
+    vals = pivot[exp].values
+    bars = ax.bar(x, vals, bottom=bottom, color=color_map[exp], label=exp)
+    for bar, val in zip(bars, vals):
+        if val > 0:
+            ax.text(bar.get_x() + bar.get_width()/2,
+                    bar.get_y() + val/2,
+                    f'{int(val):,}\n{exp}',
+                    ha='center', va='center', fontsize=7, color='white')
+    bottom += vals
+
+ax.set_xticks(x)
+ax.set_xticklabels(pivot.index)
+ax.set_ylabel('Import volume - million m^3')
+importers_str = ", ".join(importers)
+ax.set_title(f'Top 5 Gas Exporters to {importers_str} in {year} – Stacked Bars')
+ax.legend(title='Exporter code', bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
 plt.tight_layout()
 plt.show()
 
