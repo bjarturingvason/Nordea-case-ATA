@@ -7,3 +7,4 @@ highlighting vulnerabilities in energy production.
 
 Observed Italy's heavy reliance on gas from Algeria and poor development of sustainable energy production.
 
+![Import to selected European countries, by their import partner.](Figures/Import_by_partner.png)
